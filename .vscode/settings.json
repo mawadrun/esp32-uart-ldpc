@@ -1,0 +1,9 @@
+{
+  "files.associations": {
+    "*.css": "tailwindcss",
+    "*.spice": "spice",
+    "array": "cpp",
+    "string": "cpp",
+    "string_view": "cpp"
+  }
+}
