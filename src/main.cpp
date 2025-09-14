@@ -27,7 +27,8 @@ enum SystemState
 enum InputMode
 {
   INPUT_TEXT = 1,
-  INPUT_HEX = 2
+  INPUT_HEX = 2,
+  INPUT_HEX_MANUAL = 3
 };
 
 SystemState currentState = STATE_IDLE;
@@ -46,9 +47,10 @@ void printMenu()
   Serial.println("LDPC Encoder Client Menu:");
   Serial.println("1 - Encode text message");
   Serial.println("2 - Encode hex message");
-  Serial.println("3 - Check system status");
-  Serial.println("4 - Show last encoding results");
-  Serial.println("Enter your choice (1-4): ");
+  Serial.println("3 - Encode hex message with manual bit length");
+  Serial.println("4 - Check system status");
+  Serial.println("5 - Show last encoding results");
+  Serial.println("Enter your choice (1-5): ");
 }
 
 void printBytes(const uint8_t *data, uint16_t length, bool asHex = true)
@@ -159,19 +161,21 @@ bool receiveParameters()
       Serial.printf("Received parameters: K=%d, N=%d\n", K, N);
       return true;
     }
-    delay(1);
+    delay(10);
   }
 
   Serial.println("Timeout waiting for parameters!");
   return false;
 }
 
-bool sendMessageData(const uint8_t *data, uint16_t messageBits)
+bool sendMessageData(const uint8_t *data, uint16_t messageBits, uint16_t calculationBits = 0)
 {
   uint16_t K_bytes = (K + 7) / 8;
-  uint16_t C = (messageBits + K - 1) / K; // Number of blocks
+  uint16_t bitsForCalculation = (calculationBits > 0) ? calculationBits : messageBits;
+  uint16_t C = (bitsForCalculation + K - 1) / K; // Number of blocks
 
   Serial.printf("Sending %d blocks of %d bytes each\n", C, K_bytes);
+  Serial.printf("Using %d bits for calculation, sending %d bits of actual data\n", bitsForCalculation, messageBits);
 
   for (uint16_t block = 0; block < C; block++)
   {
@@ -183,7 +187,7 @@ bool sendMessageData(const uint8_t *data, uint16_t messageBits)
       uint16_t dataIndex = block * K_bytes + i;
       uint8_t byteToSend = (dataIndex < (messageBits + 7) / 8) ? data[dataIndex] : 0;
       Serial2.write(byteToSend);
-      delay(1); // Delay to not overwhelm the MCU
+      delay(10); // Delay to not overwhelm the MCU
     }
 
     // Wait for encoded data
@@ -245,7 +249,25 @@ uint16_t hexToBits(const String &hexStr, uint8_t *buffer)
 
 void handleEncoding(InputMode mode)
 {
+  uint16_t manual_message_bits;
+
   lastInputMode = mode; // Store the input mode for later reference
+
+  if (mode == INPUT_HEX_MANUAL)
+  {
+    Serial.println("Enter message length: ");
+
+    // Wait for user input
+    while (!Serial.available())
+    {
+      delay(100);
+    }
+
+    String lengthInput = Serial.readStringUntil('\n');
+    lengthInput.trim();
+    manual_message_bits = lengthInput.toInt();
+    Serial.printf("Manual message length set to: %d bits\n", manual_message_bits);
+  }
 
   Serial.println("Enter your message:");
   if (mode == INPUT_TEXT)
@@ -295,10 +317,21 @@ void handleEncoding(InputMode mode)
     return;
   }
 
-  if (!sendMessageLength(message_bits))
+  if (mode == INPUT_HEX_MANUAL)
   {
-    Serial.println("Failed to send message length!");
-    return;
+    if (!sendMessageLength(manual_message_bits))
+    {
+      Serial.println("Failed to send message length!");
+      return;
+    }
+  }
+  else
+  {
+    if (!sendMessageLength(message_bits))
+    {
+      Serial.println("Failed to send message length!");
+      return;
+    }
   }
 
   if (!receiveParameters())
@@ -307,7 +340,9 @@ void handleEncoding(InputMode mode)
     return;
   }
 
-  if (!sendMessageData(message_buffer, message_bits))
+  uint16_t bitsUsedForCalculation = (mode == INPUT_HEX_MANUAL) ? manual_message_bits : message_bits;
+
+  if (!sendMessageData(message_buffer, message_bits, (mode == INPUT_HEX_MANUAL) ? manual_message_bits : 0))
   {
     Serial.println("Failed to send message data!");
     return;
@@ -315,10 +350,10 @@ void handleEncoding(InputMode mode)
 
   Serial.println("\nEncoding completed successfully!");
   Serial.println("=================================");
-  Serial.printf("Original message (%d bits):\n", message_bits);
-  printBytes(message_buffer, (message_bits + 7) / 8, mode == INPUT_HEX); // Display as ASCII for text input, display as hex for hex input
-  Serial.printf("\nEncoded data (%d bits per block, %d blocks):\n", N, (message_bits + K - 1) / K);
-  uint16_t totalEncodedBytes = ((message_bits + K - 1) / K) * ((N + 7) / 8);
+  Serial.printf("Original message (%d bits, %d bits used for calculation):\n", message_bits, bitsUsedForCalculation);
+  printBytes(message_buffer, (message_bits + 7) / 8, mode != INPUT_TEXT); // Display as ASCII for text input, display as hex for hex input
+  Serial.printf("\nEncoded data (%d bits per block, %d blocks):\n", N, (bitsUsedForCalculation + K - 1) / K);
+  uint16_t totalEncodedBytes = ((bitsUsedForCalculation + K - 1) / K) * ((N + 7) / 8);
   printBytes(encoded_buffer, totalEncodedBytes, true);
   Serial.println();
 }
@@ -372,12 +407,16 @@ void loop()
       handleEncoding(INPUT_HEX);
       break;
     case '3':
+      Serial.println("Hex encoding mode with manual bit length selected");
+      handleEncoding(INPUT_HEX_MANUAL);
+      break;
+    case '4':
       Serial.println("System Status:");
       Serial.printf("Current state: %d\n", currentState);
       Serial.printf("Last K: %d, Last N: %d\n", K, N);
       Serial.printf("Last message bits: %d\n", message_bits);
       break;
-    case '4':
+    case '5':
       if (K > 0 && N > 0 && message_bits > 0)
       {
         Serial.println("Last encoding results:");
