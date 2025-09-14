@@ -39,6 +39,7 @@ uint16_t N = 0; // Codeword bits
 uint16_t message_bits = 0;
 uint8_t message_buffer[MAX_MESSAGE_LENGTH];
 uint8_t encoded_buffer[MAX_MESSAGE_LENGTH * 2]; // Encoded data might be larger
+InputMode lastInputMode = INPUT_TEXT;           // Track the last input mode used
 
 void printMenu()
 {
@@ -244,6 +245,8 @@ uint16_t hexToBits(const String &hexStr, uint8_t *buffer)
 
 void handleEncoding(InputMode mode)
 {
+  lastInputMode = mode; // Store the input mode for later reference
+
   Serial.println("Enter your message:");
   if (mode == INPUT_TEXT)
   {
@@ -313,7 +316,7 @@ void handleEncoding(InputMode mode)
   Serial.println("\nEncoding completed successfully!");
   Serial.println("=================================");
   Serial.printf("Original message (%d bits):\n", message_bits);
-  printBytes(message_buffer, (message_bits + 7) / 8, false);
+  printBytes(message_buffer, (message_bits + 7) / 8, mode == INPUT_HEX); // Display as ASCII for text input, display as hex for hex input
   Serial.printf("\nEncoded data (%d bits per block, %d blocks):\n", N, (message_bits + K - 1) / K);
   uint16_t totalEncodedBytes = ((message_bits + K - 1) / K) * ((N + 7) / 8);
   printBytes(encoded_buffer, totalEncodedBytes, true);
@@ -380,7 +383,7 @@ void loop()
         Serial.println("Last encoding results:");
         Serial.printf("K=%d, N=%d, Message bits=%d\n", K, N, message_bits);
         Serial.println("Original message:");
-        printBytes(message_buffer, (message_bits + 7) / 8, false);
+        printBytes(message_buffer, (message_bits + 7) / 8, lastInputMode == INPUT_HEX); // Display as ASCII for text input, display as hex for hex input
         Serial.println("Encoded data:");
         uint16_t totalEncodedBytes = ((message_bits + K - 1) / K) * ((N + 7) / 8);
         printBytes(encoded_buffer, totalEncodedBytes, true);
