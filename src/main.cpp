@@ -7,6 +7,7 @@
 #define UART2_TX_PIN 17    // GPIO17 for UART2 TX
 
 // LDPC Protocol Constants
+#define USE_TAG // Comment this line to disable tag waiting
 #define LDPC_TAG_0 0xde
 #define LDPC_TAG_1 0xad
 #define LDPC_TAG_2 0xc0
@@ -42,6 +43,10 @@ uint8_t message_buffer[MAX_MESSAGE_LENGTH];
 uint8_t encoded_buffer[MAX_MESSAGE_LENGTH * 2]; // Encoded data might be larger
 InputMode lastInputMode = INPUT_TEXT;           // Track the last input mode used
 
+#ifdef USE_TAG
+bool tagReceived = false; // Track if tag has been received
+#endif
+
 void printMenu()
 {
   Serial.println("LDPC Encoder Client Menu:");
@@ -50,7 +55,12 @@ void printMenu()
   Serial.println("3 - Encode hex message with manual bit length");
   Serial.println("4 - Check system status");
   Serial.println("5 - Show last encoding results");
+#ifdef USE_TAG
+  Serial.println("6 - Reset tag state (force tag wait on next encoding)");
+  Serial.println("Enter your choice (1-6): ");
+#else
   Serial.println("Enter your choice (1-5): ");
+#endif
 }
 
 void printBytes(const uint8_t *data, uint16_t length, bool asHex = true)
@@ -83,6 +93,13 @@ void printBytes(const uint8_t *data, uint16_t length, bool asHex = true)
 
 bool waitForTag()
 {
+#ifdef USE_TAG
+  if (tagReceived)
+  {
+    Serial.println("Tag already received, skipping tag wait...");
+    return true;
+  }
+
   Serial.println("Waiting for microcontroller tag...");
   uint8_t tagBytes[4] = {0};
   int tagIndex = 0;
@@ -113,6 +130,7 @@ bool waitForTag()
       {
         tagBytes[3] = receivedByte;
         Serial.println("Tag received successfully!");
+        tagReceived = true;
         return true;
       }
       else
@@ -125,6 +143,10 @@ bool waitForTag()
 
   Serial.println("Timeout waiting for tag!");
   return false;
+#else
+  Serial.println("Tag checking disabled, proceeding...");
+  return true;
+#endif
 }
 
 bool sendMessageLength(uint16_t bits)
@@ -377,6 +399,11 @@ void setup()
   Serial.println("Configuration:");
   Serial.printf("USB Serial: %d baud\n", SERIAL_BAUD);
   Serial.printf("UART2: %d baud, RX=GPIO%d, TX=GPIO%d\n", UART2_BAUD, UART2_RX_PIN, UART2_TX_PIN);
+#ifdef USE_TAG
+  Serial.println("Tag mode: ENABLED (will wait for 0xdeadc0de tag once)");
+#else
+  Serial.println("Tag mode: DISABLED (no tag required)");
+#endif
   Serial.println();
 
   printMenu();
@@ -415,6 +442,11 @@ void loop()
       Serial.printf("Current state: %d\n", currentState);
       Serial.printf("Last K: %d, Last N: %d\n", K, N);
       Serial.printf("Last message bits: %d\n", message_bits);
+#ifdef USE_TAG
+      Serial.printf("Tag received: %s\n", tagReceived ? "YES" : "NO");
+#else
+      Serial.println("Tag mode: DISABLED");
+#endif
       break;
     case '5':
       if (K > 0 && N > 0 && message_bits > 0)
@@ -432,6 +464,12 @@ void loop()
         Serial.println("No encoding results available yet.");
       }
       break;
+#ifdef USE_TAG
+    case '6':
+      tagReceived = false;
+      Serial.println("Tag state reset. Next encoding will wait for tag.");
+      break;
+#endif
     default:
       Serial.println("Invalid choice!");
       break;
